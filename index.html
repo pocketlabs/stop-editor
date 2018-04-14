@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>Stop Editor</title>
+        <meta charset="UTF-8">
+        <script src="lib/ace/ace.js" type="text/javascript" charset="utf-8"></script>
+        <script src="lib/ace/theme-textmate.js" type="text/javascript" charset="utf-8"></script>
+        <script src="src/stop-mode.js" type="text/javascript" charset="utf-8"></script>
+        <link rel="stylesheet" href="src/style.css"/>
+    </head>
+    <body>
+<div id="editor" style="height: 100%">start Hello {
+    string whom
+    -> Say
+}
+
+stop Say {
+    string words
+}</div>
+        
+        <script>
+            var editor = ace.edit("editor");
+            editor.getSession().setMode("ace/mode/stop-mode");
+            editor.setTheme("ace/theme/textmate");
+        </script>
+    </body>
+</html>
