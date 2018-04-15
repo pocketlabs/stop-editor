@@ -1,4 +1,4 @@
-var EDITOR_BASE="http://localhost:8000";
+var EDITOR_BASE="https://editor.stop-lang.org";
 var Honey = { 'requirePath': ['/lib/'] };
 
 importScripts(EDITOR_BASE + "/src/worker-base.js");
