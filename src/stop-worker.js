@@ -49,6 +49,504 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
      });
     };
 
+    function getEnclosingScopeWithLine(scope){
+        if (scope.line){
+            return scope;
+        }
+        if (scope.enclosingScope){
+            return getEnclosingScopeWithLine(scope.enclosingScope);
+        }
+        return undefined;
+    }
+
+    var Scope = function(scope){
+        this.enclosingScope = scope;
+    };
+    Scope.prototype.constructor = Scope;
+    Scope.prototype.define = function(symbol){
+        var name = symbol.name;
+        if (this[name] != undefined){
+            var line = 1;
+            var lineScope = getEnclosingScopeWithLine(this);
+            if(lineScope){
+                line = lineScope.line;
+            }
+            throw {line: line, message: name+ " is already defined"};
+        }
+        this[name] = symbol;
+    };
+
+    var ModelSymbol = function(ctx, enclosingScope){
+        this.name = ctx.MODEL_TYPE().getText();
+        this.async = false;
+        this.stop = false;
+        this.asyncReturnType = undefined;
+        this.errorTypes = [];
+        this.transitions = [];
+        this.timeout = 0;
+        this.line = ctx.start.line;
+        this.enclosingScope = enclosingScope;
+        if(ctx.STOP() != null) {
+            this.stop = true;
+        }else if(ctx.ASYNC() != null) {
+            this.async = true;
+        }
+        if (ctx.return_type()!=null){
+            this.asyncReturnType = ctx.return_type().getText();
+        }
+    };
+    ModelSymbol.prototype = Object.create(Scope.prototype);
+    ModelSymbol.prototype.constructor = ModelSymbol;
+
+    var EnumSymbol = function(ctx, enclosingScope){
+        this.name = ctx.enum_type().MODEL_TYPE().getText();
+        this.enclosingScope = enclosingScope;
+        this.values = [];
+    };
+    EnumSymbol.prototype = Object.create(Scope.prototype);
+    EnumSymbol.prototype.constructor = EnumSymbol;
+
+    var TransitionSymbol = function(ctx, enclosingScope){
+        this.name = ctx.MODEL_TYPE().getText();
+        this.enclosingScope = enclosingScope;
+    };
+    TransitionSymbol.prototype = Object.create(Scope.prototype);
+    TransitionSymbol.prototype.constructor = TransitionSymbol;
+
+    var ScalarFieldSymbol = function(name, typeName){
+        this.name = name;
+        this.typeName = typeName;
+        this.asyncSource = undefined;
+    };
+    ScalarFieldSymbol.prototype.constructor = ScalarFieldSymbol;
+
+    var ModelFieldSymbol = function(name, typeName){
+        this.name = name;
+        this.typeName = typeName;
+        this.asyncSource = undefined;
+    };
+    ModelFieldSymbol.prototype.constructor = ModelFieldSymbol;
+
+    var CollectionFieldSymbol = function(name, typeName){
+        this.name = name;
+        this.typeName = typeName;
+        this.asyncSource = undefined;
+    };
+    CollectionFieldSymbol.prototype.constructor = CollectionFieldSymbol;
+    
+    var DefPhase = function(listener) {
+        stop.StopListener.StopListener.call(this); // inherit default listener
+        this.errors = [];
+        this.listener = listener;
+        this.globals = undefined;
+        this.scopes = [];
+        this.currentScope = undefined;
+        return this;
+    };
+    DefPhase.prototype = Object.create(stop.StopListener.StopListener.prototype);
+    DefPhase.prototype.constructor = DefPhase;
+    DefPhase.prototype.saveScope = function(ctx, s) { 
+        this.scopes[ctx] = s;
+    };
+    DefPhase.prototype.enterFile = function(ctx) { 
+        this.globals = new Scope();
+        this.currentScope = this.globals;
+    };
+    DefPhase.prototype.enterModel = function(ctx) { 
+        if (ctx.MODEL_TYPE() == null){
+            return;
+        }  
+        var modelName = ctx.MODEL_TYPE().getText();
+        var modelSymbol = new ModelSymbol(ctx, this.currentScope);
+        this.currentScope.define(modelSymbol);
+        this.saveScope(ctx, modelSymbol);
+        this.currentScope = modelSymbol;
+    };
+    DefPhase.prototype.exitModel = function(ctx) {
+        var modelSymbol = this.currentScope;
+        if (modelSymbol.async && (modelSymbol.timeout == 0)){
+            this.errors.push("Asynchronous states " + modelSymbol.name + " must have a timeout defined");
+            this.listener.annotations.push({
+                row: modelSymbol.line - 1,
+                column: 0,
+                text: "Asynchronous states " + modelSymbol.name + " must have a timeout defined",
+                type: "error"
+            });
+        }
+        this.currentScope = this.globals;
+    };
+    DefPhase.prototype.exitTimeout = function(ctx) {
+        var modelSymbol = this.currentScope;
+        var numberString = ctx.NUMBER().getText();
+        var timeout = parseInt(numberString);
+        if (modelSymbol.timeout > 0){
+            this.errors.push("Timeout already defined for " + modelSymbol.name);
+            this.listener.annotations.push({
+                row: modelSymbol.line - 1,
+                column: 0,
+                text: "Timeout already defined for " + modelSymbol.name,
+                type: "error"
+            });
+        }else {
+            modelSymbol.timeout = timeout;
+        }
+    };
+    DefPhase.prototype.exitThrow_parameter = function(ctx) {
+        var modelSymbol = this.currentScope;
+        if (ctx.MODEL_TYPE()!=null){
+            modelSymbol.errorTypes.push(ctx.MODEL_TYPE().getText());
+        }
+    };
+    DefPhase.prototype.enterEnumeration = function(ctx) {
+        var enumSymbol = new EnumSymbol(ctx, this.currentScope);
+        this.currentScope.define(enumSymbol);
+        this.saveScope(ctx, enumSymbol);
+        this.currentScope = enumSymbol;
+    };
+    DefPhase.prototype.exitEnumeration = function(ctx) {
+        this.currentScope = this.currentScope.enclosingScope;
+    };
+    DefPhase.prototype.exitEnum_value = function(ctx) {
+        var enumValue = ctx.ENUM_VALUE().getText();
+        var enumSymbol = this.currentScope;
+        enumSymbol.values.push(enumValue);
+    };
+    DefPhase.prototype.exitField = function(ctx) {
+        var fieldName = ctx.ID().getText();
+        var field = null;
+        if (ctx.type() != null && ctx.type().model_type() != null) {
+            var modelName = ctx.type().model_type().getText();
+            field = new ModelFieldSymbol(fieldName, modelName);
+        }else if (ctx.type()!=null && ctx.type().scalar_type() != null){
+            var typeName = ctx.type().scalar_type().getText();
+            field = new ScalarFieldSymbol(fieldName, typeName);
+        }else if (ctx.collection() != null && ctx.collection().type() != null){
+            var typeName = ctx.collection().type().getText();
+            field = new CollectionFieldSymbol(fieldName, typeName);
+        }
+        if(field != null){
+            if (ctx.async_source() != null){
+                var asyncModel = ctx.async_source().MODEL_TYPE().getText();
+                field.asyncSource = asyncModel;
+            }
+            this.currentScope.define(field);
+        }
+    };
+    DefPhase.prototype.exitTransition = function(ctx) {
+        var transitionSymbol = new TransitionSymbol(ctx, this.currentScope);
+        this.currentScope.define(transitionSymbol);
+    };
+    DefPhase.prototype.exitThrow_parameter = function(ctx) {
+        var modelSymbol = this.currentScope;
+        modelSymbol.errorTypes.push(ctx.MODEL_TYPE().getText());
+    };
+
+    var RefPhase = function(listener, globals, scopes) {
+        stop.StopListener.StopListener.call(this); // inherit default listener
+        this.errors = [];
+        this.listener = listener;
+        this.globals = globals;
+        this.scopes = scopes;
+        this.currentScope = undefined;
+        return this;
+    };
+    RefPhase.prototype = Object.create(stop.StopListener.StopListener.prototype);
+    RefPhase.prototype.constructor = RefPhase;
+    RefPhase.prototype.enterFile = function(ctx) {
+        this.currentScope = this.globals;
+    };
+    RefPhase.prototype.enterModel = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            this.currentScope = this.globals[ctx.MODEL_TYPE().getText()];
+        }
+    };
+    RefPhase.prototype.exitModel = function(ctx) {
+        this.currentScope = this.currentScope.enclosingScope;
+    };
+    RefPhase.prototype.exitField = function(ctx) {
+        var name = ctx.ID().symbol.text;
+        var symbol = this.currentScope[name];
+        if (symbol instanceof ModelFieldSymbol){
+            var modelName = symbol.typeName;
+            var modelSymbol = this.globals[modelName];
+            var enumSymbol = this.currentScope[modelName];
+            if(modelSymbol == undefined){
+                if ((enumSymbol != undefined) && (enumSymbol instanceof EnumSymbol)){
+                    // Found symbol
+                } else {
+                    var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                    var line = 1;
+                    if (lineScope){
+                        line = lineScope.line;
+                    }
+                    this.errors.push({line: line, message: "Couldn't define field \""+
+                            name +"\" because " + modelName + " isn't defined"});
+                }
+            }
+        }
+        if (symbol instanceof CollectionFieldSymbol){
+            var modelName = symbol.typeName;
+            var modelSymbol = this.globals[modelName];
+            var enumSymbol = this.currentScope[modelName];
+            if(modelSymbol == undefined){
+                if ((enumSymbol != undefined) && (enumSymbol instanceof EnumSymbol)){
+                    // Found symbol
+                } else {
+                    var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                    var line = 1;
+                    if (lineScope){
+                        line = lineScope.line;
+                    }
+                    this.errors.push({line: line, message: "Couldn't define field \""+
+                            name +"\" because " + modelName + " isn't defined"});
+                }
+            }
+        }
+        if (ctx.async_source() != null){
+            var modelName = ctx.async_source().MODEL_TYPE().getText();
+            var modelSymbol = this.globals[modelName];
+            if(modelSymbol == undefined){
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                    var line = 1;
+                    if (lineScope){
+                        line = lineScope.line;
+                    }
+                this.errors.push({line: line, message: "Couldn't define field \""+
+                        name +"\" because " + modelName + " isn't defined"});
+            }else{
+                var typeString = null;
+                if (ctx.type()!=null){
+                    typeString = ctx.type().getText();
+                }
+                if (ctx.collection()!=null){
+                    typeString = ctx.collection().getText();
+                }
+                if(typeString!=null){
+                    if (modelSymbol.asyncReturnType!=undefined){
+                        if (typeString != (modelSymbol.asyncReturnType)){
+                            var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                            var line = 1;
+                            if (lineScope){
+                                line = lineScope.line;
+                            }
+                            this.errors.push({line: line, message: "Couldn't define field \""+
+                                    name +"\" because "
+                                    + typeString + " doesn't match async return type of "
+                                    + modelSymbol.asyncReturnType});
+                        }
+                    }else {
+                        var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                            var line = 1;
+                            if (lineScope){
+                                line = lineScope.line;
+                            }
+                            this.errors.push({line: line, message: "Couldn't define field \""+
+                                    name +"\" because "
+                                    + modelSymbol.name + " doesn't have a return type defined"});
+                    }
+                }
+            }
+        }
+    };
+    RefPhase.prototype.exitTransition = function(ctx) {
+        var modelName = ctx.MODEL_TYPE().getText();
+        var modelSymbol = this.globals[modelName];
+        if(modelSymbol == undefined){
+            var lineScope = getEnclosingScopeWithLine(this.currentScope);
+            var line = 1;
+            if (lineScope){
+                line = lineScope.line;
+            }
+            this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
+        }
+    };
+    RefPhase.prototype.exitReturn_type = function(ctx) {
+        if (ctx.type()!=null){
+            if(ctx.type().model_type() != null){
+                var modelName = ctx.type().model_type().MODEL_TYPE().getText();
+                var modelSymbol = this.globals[modelName];
+                if(modelSymbol == undefined){
+                    var line = 1;
+                    if (this.currentScope.line){
+                        line = this.currentScope.line;
+                    }
+                    this.errors.push({line: line, message: "Couldn't define return type because " + modelName + " isn't defined"});
+                }
+            }
+        }
+        if (ctx.collection() != null){
+            if (ctx.collection().type().model_type() != null){
+                var modelName = ctx.collection().type().model_type().MODEL_TYPE().getText();
+                var modelSymbol = this.globals[modelName];
+                if(modelSymbol == undefined){
+                    var line = 1;
+                    if (this.currentScope.line){
+                        line = this.currentScope.line;
+                    }
+                    this.errors.push({line: line, message: "Couldn't define return collection type because " + modelName + " isn't defined"});
+                }
+            }
+        }
+    };
+    RefPhase.prototype.exitThrow_parameter = function(ctx) {
+        if (ctx.MODEL_TYPE()!=null){
+            var modelName = ctx.MODEL_TYPE().getText();
+            var modelSymbol = this.globals[modelName];
+            if(modelSymbol == undefined){
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                var line = 1;
+                if (lineScope){
+                    line = lineScope.line;
+                }
+                this.errors.push({line: line, message: "Couldn't define throw parameter because " + modelName + " isn't defined"});
+            }
+        }
+    };
+
+    var TransitionPhase = function(listener, globals, scopes) {
+        stop.StopListener.StopListener.call(this); // inherit default listener
+        this.errors = [];
+        this.listener = listener;
+        this.globals = globals;
+        this.scopes = scopes;
+        this.currentScope = undefined;
+        return this;
+    };
+    TransitionPhase.prototype = Object.create(stop.StopListener.StopListener.prototype);
+    TransitionPhase.prototype.constructor = TransitionPhase;
+    TransitionPhase.prototype.enterFile = function(ctx) {
+        this.currentScope = this.globals;
+    };
+    TransitionPhase.prototype.enterModel = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            this.currentScope = this.globals[ctx.MODEL_TYPE().getText()];
+        }
+    };
+    TransitionPhase.prototype.exitModel = function(ctx) {
+        this.currentScope = this.currentScope.enclosingScope;
+    };
+    TransitionPhase.prototype.exitTransition = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            var modelName = ctx.MODEL_TYPE().getText();
+            var modelSymbol = this.currentScope;
+
+            var symbol = this.globals[modelName];
+            if(modelSymbol != undefined && symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    modelSymbol.transitions.push(modelName);
+                }
+            }else{
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                var line = 1;
+                if (lineScope){
+                    line = lineScope.line;
+                }
+                this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
+            }
+        }
+    };
+    TransitionPhase.prototype.exitThrow_parameter = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            var modelName = ctx.MODEL_TYPE().getText();
+            var modelSymbol = this.currentScope;
+
+            var symbol = this.globals[modelName];
+            if(modelSymbol != undefined && symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    modelSymbol.transitions.push(modelName);
+                }
+            }else{
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                var line = 1;
+                if (lineScope){
+                    line = lineScope.line;
+                }
+                this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
+            }
+        }
+    };
+
+    var StopPhase = function(listener, globals, scopes) {
+        stop.StopListener.StopListener.call(this); // inherit default listener
+        this.errors = [];
+        this.listener = listener;
+        this.globals = globals;
+        this.scopes = scopes;
+        this.currentScope = undefined;
+        return this;
+    };
+    StopPhase.prototype = Object.create(stop.StopListener.StopListener.prototype);
+    StopPhase.prototype.constructor = StopPhase;
+    StopPhase.prototype.enterFile = function(ctx) {
+        this.currentScope = this.globals;
+    };
+    StopPhase.prototype.enterModel = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            this.currentScope = this.globals[ctx.MODEL_TYPE().getText()];
+        }
+    };
+    StopPhase.prototype.exitModel = function(ctx) {
+        this.currentScope = this.currentScope.enclosingScope;
+    };
+    StopPhase.prototype.exitTransition = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            var modelName = ctx.MODEL_TYPE().getText();
+
+            var symbol = this.globals[modelName];
+            if(symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    var modelSymbol = symbol;
+                    var valid = this.findStop(modelSymbol);
+                    if (!valid){
+                        var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                        var line = 1;
+                        if (lineScope){
+                            line = lineScope.line;
+                        }
+                        this.errors.push({line: line, message: "Couldn't define transition \""+
+                                modelName +"\" because a stopping state could not be reached"});
+                    }
+                }
+            }else{
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                var line = 1;
+                if (lineScope){
+                    line = lineScope.line;
+                }
+                this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
+            }
+        }
+    };
+    StopPhase.prototype.findStop = function(modelSymbol) {
+        if (modelSymbol.stop){
+            return true;
+        }
+
+        if (modelSymbol.transitions.length == 0){
+            return false;
+        }
+
+        var foundStop = true;
+
+        for (var transitionIndex in modelSymbol.transitions){
+            var transition = modelSymbol.transitions[transitionIndex];
+            var symbol = this.globals[transition];
+            if(symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    if (!findStop(symbol)){
+                        foundStop = false;
+                    }
+                }else{
+                    foundStop = false;
+                }
+            }else {
+                foundStop = false;
+            }
+        }
+
+        return foundStop;
+    };
+
     var validate = function(input) {
         var stream = antlr4.CharStreams.fromString(input);
         var lexer = new stop.StopLexer.StopLexer(stream);
@@ -58,7 +556,47 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         var listener = new AnnotatingErrorListener(annotations)
         parser.removeErrorListeners();
         parser.addErrorListener(listener);
-        parser.file();
+        var tree = parser.file();
+
+        var handleErrors = function(listener, errors){
+            for (var errorIndex in errors){
+                var error = errors[errorIndex];
+                listener.annotations.push({
+                    row: error.line - 1,
+                    column: 0,
+                    text: error.message,
+                    type: "error"
+                });
+            }
+        }
+
+        try {
+            var defPhase = new DefPhase(listener);
+            antlr4.tree.ParseTreeWalker.DEFAULT.walk(defPhase, tree);
+            handleErrors(listener, defPhase.errors);
+
+            var refPhase = new RefPhase(listener, defPhase.globals, defPhase.scopes);
+            antlr4.tree.ParseTreeWalker.DEFAULT.walk(refPhase, tree);
+            handleErrors(listener, refPhase.errors);
+
+            var transitionPhase = new TransitionPhase(listener, defPhase.globals, defPhase.scopes);
+            antlr4.tree.ParseTreeWalker.DEFAULT.walk(transitionPhase, tree);
+            handleErrors(listener, transitionPhase.errors);
+
+            var stopPhase = new StopPhase(listener, defPhase.globals, defPhase.scopes);
+            antlr4.tree.ParseTreeWalker.DEFAULT.walk(stopPhase, tree);
+            handleErrors(listener, stopPhase.errors);
+        } catch (err) {
+            if (err.line){
+                listener.annotations.push({
+                    row: err.line - 1,
+                    column: 0,
+                    text: err.message,
+                    type: "error"
+                });
+            }
+        }
+
         return annotations;
     };
 

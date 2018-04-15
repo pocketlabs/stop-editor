@@ -3,7 +3,7 @@ ace.define('ace/mode/stop-mode',["require","exports","module","ace/lib/oop","ace
     var TextMode = require("ace/mode/text").Mode;
     var TextHighlightRules = require("ace/mode/text_highlight_rules").TextHighlightRules;
 
-    var MyHighlightRules = function() {
+    var StopHighlightRules = function() {
         var keywordMapper = this.createKeywordMapper({
             "keyword.control": "throws",
             "keyword.operator": "->|<-",
@@ -46,10 +46,10 @@ ace.define('ace/mode/stop-mode',["require","exports","module","ace/lib/oop","ace
             ]
         };
     };
-    oop.inherits(MyHighlightRules, TextHighlightRules);
+    oop.inherits(StopHighlightRules, TextHighlightRules);
 
     var StopMode = function() {
-        this.HighlightRules = MyHighlightRules;
+        this.HighlightRules = StopHighlightRules;
     };
     oop.inherits(StopMode, TextMode);
 

@@ -9,7 +9,7 @@
         <link rel="stylesheet" href="src/style.css"/>
     </head>
     <body>
-<div id="editor" style="height: 100%">start Hello {
+<div id="editor">start Hello {
     string whom
     -> Say
 }
@@ -22,6 +22,21 @@ stop Say {
             var editor = ace.edit("editor");
             editor.getSession().setMode("ace/mode/stop-mode");
             editor.setTheme("ace/theme/textmate");
+
+            // Load saved content
+            if(localStorage){
+                var stopfileKey = "my.stop";
+                var value = localStorage.getItem(stopfileKey);
+                if ((value != undefined) && (typeof value == "string")) {
+                    editor.getSession().setValue(value);
+                }
+                editor.getSession().on('change', function(delta) {
+                    localStorage.setItem(
+                        stopfileKey,
+                        editor.getSession()
+                    );
+                });
+            }
         </script>
     </body>
 </html>
