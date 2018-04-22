@@ -1,4 +1,5 @@
 var EDITOR_BASE="https://editor.stop-lang.org";
+// var EDITOR_BASE="http://localhost:8000";
 var Honey = { 'requirePath': ['/lib/'] };
 
 importScripts(EDITOR_BASE + "/src/worker-base.js");
@@ -61,11 +62,18 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
 
     var Scope = function(scope){
         this.enclosingScope = scope;
+        this.definitions = {};
     };
     Scope.prototype.constructor = Scope;
     Scope.prototype.define = function(symbol){
+        if (symbol == undefined){
+            return;
+        }
+        if (symbol.name == undefined){
+            return;
+        }
         var name = symbol.name;
-        if (this[name] != undefined){
+        if (this.definitions[name] != undefined){
             var line = 1;
             var lineScope = getEnclosingScopeWithLine(this);
             if(lineScope){
@@ -73,20 +81,24 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             }
             throw {line: line, message: name+ " is already defined"};
         }
-        this[name] = symbol;
+        this.definitions[name] = symbol;
     };
 
     var ModelSymbol = function(ctx, enclosingScope){
         this.name = ctx.MODEL_TYPE().getText();
         this.async = false;
         this.stop = false;
+        this.start = false;
         this.asyncReturnType = undefined;
         this.errorTypes = [];
         this.transitions = [];
         this.timeout = 0;
         this.line = ctx.start.line;
         this.enclosingScope = enclosingScope;
-        if(ctx.STOP() != null) {
+        this.definitions = {};
+        if(ctx.START() != null) {
+            this.start = true;
+        }else if(ctx.STOP() != null) {
             this.stop = true;
         }else if(ctx.ASYNC() != null) {
             this.async = true;
@@ -102,6 +114,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         this.name = ctx.enum_type().MODEL_TYPE().getText();
         this.enclosingScope = enclosingScope;
         this.values = [];
+        this.definitions = {};
     };
     EnumSymbol.prototype = Object.create(Scope.prototype);
     EnumSymbol.prototype.constructor = EnumSymbol;
@@ -109,6 +122,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     var TransitionSymbol = function(ctx, enclosingScope){
         this.name = ctx.MODEL_TYPE().getText();
         this.enclosingScope = enclosingScope;
+        this.definitions = {};
     };
     TransitionSymbol.prototype = Object.create(Scope.prototype);
     TransitionSymbol.prototype.constructor = TransitionSymbol;
@@ -257,7 +271,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     };
     RefPhase.prototype.enterModel = function(ctx) {
         if (ctx.MODEL_TYPE()!= null){
-            this.currentScope = this.globals[ctx.MODEL_TYPE().getText()];
+            this.currentScope = this.globals.definitions[ctx.MODEL_TYPE().getText()];
         }
     };
     RefPhase.prototype.exitModel = function(ctx) {
@@ -265,11 +279,11 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     };
     RefPhase.prototype.exitField = function(ctx) {
         var name = ctx.ID().symbol.text;
-        var symbol = this.currentScope[name];
+        var symbol = this.currentScope.definitions[name];
         if (symbol instanceof ModelFieldSymbol){
             var modelName = symbol.typeName;
-            var modelSymbol = this.globals[modelName];
-            var enumSymbol = this.currentScope[modelName];
+            var modelSymbol = this.globals.definitions[modelName];
+            var enumSymbol = this.currentScope.definitions[modelName];
             if(modelSymbol == undefined){
                 if ((enumSymbol != undefined) && (enumSymbol instanceof EnumSymbol)){
                     // Found symbol
@@ -286,8 +300,8 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         }
         if (symbol instanceof CollectionFieldSymbol){
             var modelName = symbol.typeName;
-            var modelSymbol = this.globals[modelName];
-            var enumSymbol = this.currentScope[modelName];
+            var modelSymbol = this.globals.definitions[modelName];
+            var enumSymbol = this.currentScope.definitions[modelName];
             if(modelSymbol == undefined){
                 if ((enumSymbol != undefined) && (enumSymbol instanceof EnumSymbol)){
                     // Found symbol
@@ -304,7 +318,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         }
         if (ctx.async_source() != null){
             var modelName = ctx.async_source().MODEL_TYPE().getText();
-            var modelSymbol = this.globals[modelName];
+            var modelSymbol = this.globals.definitions[modelName];
             if(modelSymbol == undefined){
                 var lineScope = getEnclosingScopeWithLine(this.currentScope);
                     var line = 1;
@@ -350,7 +364,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     };
     RefPhase.prototype.exitTransition = function(ctx) {
         var modelName = ctx.MODEL_TYPE().getText();
-        var modelSymbol = this.globals[modelName];
+        var modelSymbol = this.globals.definitions[modelName];
         if(modelSymbol == undefined){
             var lineScope = getEnclosingScopeWithLine(this.currentScope);
             var line = 1;
@@ -364,7 +378,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         if (ctx.type()!=null){
             if(ctx.type().model_type() != null){
                 var modelName = ctx.type().model_type().MODEL_TYPE().getText();
-                var modelSymbol = this.globals[modelName];
+                var modelSymbol = this.globals.definitions[modelName];
                 if(modelSymbol == undefined){
                     var line = 1;
                     if (this.currentScope.line){
@@ -377,7 +391,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         if (ctx.collection() != null){
             if (ctx.collection().type().model_type() != null){
                 var modelName = ctx.collection().type().model_type().MODEL_TYPE().getText();
-                var modelSymbol = this.globals[modelName];
+                var modelSymbol = this.globals.definitions[modelName];
                 if(modelSymbol == undefined){
                     var line = 1;
                     if (this.currentScope.line){
@@ -391,7 +405,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     RefPhase.prototype.exitThrow_parameter = function(ctx) {
         if (ctx.MODEL_TYPE()!=null){
             var modelName = ctx.MODEL_TYPE().getText();
-            var modelSymbol = this.globals[modelName];
+            var modelSymbol = this.globals.definitions[modelName];
             if(modelSymbol == undefined){
                 var lineScope = getEnclosingScopeWithLine(this.currentScope);
                 var line = 1;
@@ -419,7 +433,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     };
     TransitionPhase.prototype.enterModel = function(ctx) {
         if (ctx.MODEL_TYPE()!= null){
-            this.currentScope = this.globals[ctx.MODEL_TYPE().getText()];
+            this.currentScope = this.globals.definitions[ctx.MODEL_TYPE().getText()];
         }
     };
     TransitionPhase.prototype.exitModel = function(ctx) {
@@ -430,7 +444,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             var modelName = ctx.MODEL_TYPE().getText();
             var modelSymbol = this.currentScope;
 
-            var symbol = this.globals[modelName];
+            var symbol = this.globals.definitions[modelName];
             if(modelSymbol != undefined && symbol != undefined) {
                 if (symbol instanceof ModelSymbol){
                     modelSymbol.transitions.push(modelName);
@@ -450,7 +464,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             var modelName = ctx.MODEL_TYPE().getText();
             var modelSymbol = this.currentScope;
 
-            var symbol = this.globals[modelName];
+            var symbol = this.globals.definitions[modelName];
             if(modelSymbol != undefined && symbol != undefined) {
                 if (symbol instanceof ModelSymbol){
                     modelSymbol.transitions.push(modelName);
@@ -482,17 +496,46 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     };
     StopPhase.prototype.enterModel = function(ctx) {
         if (ctx.MODEL_TYPE()!= null){
-            this.currentScope = this.globals[ctx.MODEL_TYPE().getText()];
+            this.currentScope = this.globals.definitions[ctx.MODEL_TYPE().getText()];
         }
     };
     StopPhase.prototype.exitModel = function(ctx) {
         this.currentScope = this.currentScope.enclosingScope;
     };
+    StopPhase.prototype.findStop = function(modelSymbol) {
+        if (modelSymbol.stop){
+            return true;
+        }
+
+        if (modelSymbol.transitions.length == 0){
+            return false;
+        }
+
+        var foundStop = true;
+
+        for (var transitionIndex in modelSymbol.transitions){
+            var transition = modelSymbol.transitions[transitionIndex];
+            var symbol = this.globals.definitions[transition];
+            if(symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    if (!this.findStop(symbol)){
+                        foundStop = false;
+                    }
+                }else{
+                    foundStop = false;
+                }
+            }else {
+                foundStop = false;
+            }
+        }
+
+        return foundStop;
+    };
     StopPhase.prototype.exitTransition = function(ctx) {
         if (ctx.MODEL_TYPE()!= null){
             var modelName = ctx.MODEL_TYPE().getText();
 
-            var symbol = this.globals[modelName];
+            var symbol = this.globals.definitions[modelName];
             if(symbol != undefined) {
                 if (symbol instanceof ModelSymbol){
                     var modelSymbol = symbol;
@@ -516,35 +559,6 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                 this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
             }
         }
-    };
-    StopPhase.prototype.findStop = function(modelSymbol) {
-        if (modelSymbol.stop){
-            return true;
-        }
-
-        if (modelSymbol.transitions.length == 0){
-            return false;
-        }
-
-        var foundStop = true;
-
-        for (var transitionIndex in modelSymbol.transitions){
-            var transition = modelSymbol.transitions[transitionIndex];
-            var symbol = this.globals[transition];
-            if(symbol != undefined) {
-                if (symbol instanceof ModelSymbol){
-                    if (!findStop(symbol)){
-                        foundStop = false;
-                    }
-                }else{
-                    foundStop = false;
-                }
-            }else {
-                foundStop = false;
-            }
-        }
-
-        return foundStop;
     };
 
     var validate = function(input) {
@@ -570,6 +584,8 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             }
         }
 
+        var graph = undefined;
+
         try {
             var defPhase = new DefPhase(listener);
             antlr4.tree.ParseTreeWalker.DEFAULT.walk(defPhase, tree);
@@ -586,6 +602,29 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             var stopPhase = new StopPhase(listener, defPhase.globals, defPhase.scopes);
             antlr4.tree.ParseTreeWalker.DEFAULT.walk(stopPhase, tree);
             handleErrors(listener, stopPhase.errors);
+
+            var digraph = "digraph {\nnode [shape=circle]\n";
+            for (var key in defPhase.globals.definitions){
+                var modelSymbol = defPhase.globals.definitions[key];
+                if (modelSymbol && (modelSymbol instanceof ModelSymbol)){
+                    var atts = [];
+                    if (modelSymbol.async) {
+                        atts.push("style=dashed");
+                    }
+                    if (modelSymbol.start){
+                        atts.push("style=bold");
+                    } else if (modelSymbol.stop){
+                        atts.push("shape=doublecircle");
+                    }
+                    digraph += modelSymbol.name + " ["+atts.join(", ")+"]\n";
+                    for (var i = 0; i < modelSymbol.transitions.length; i++){
+                        var transition = modelSymbol.transitions[i];
+                        digraph += modelSymbol.name + " -> " + transition + "\n";
+                    }
+                }
+            }
+            digraph += "}\n";
+            graph = digraph;
         } catch (err) {
             if (err.line){
                 listener.annotations.push({
@@ -597,15 +636,16 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             }
         }
 
-        return annotations;
+        return {annotations: annotations, graph: graph};
     };
 
     (function() {
 
         this.onUpdate = function() {
             var value = this.doc.getValue();
-            var annotations = validate(value);
-            this.sender.emit("annotate", annotations);
+            var validateObj = validate(value);
+            this.sender.emit("annotate", validateObj.annotations);
+            this.sender.emit("graph", validateObj.graph);
         };
 
     }).call(StopWorker.prototype);

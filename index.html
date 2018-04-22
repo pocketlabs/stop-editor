@@ -5,6 +5,8 @@
         <meta charset="UTF-8">
         <script src="lib/ace/ace.js" type="text/javascript" charset="utf-8"></script>
         <script src="lib/ace/theme-textmate.js" type="text/javascript" charset="utf-8"></script>
+        <script src="lib/viz/viz.js" type="text/javascript" charset="utf-8"></script>
+        <script src="lib/svg-pan-zoom/svg-pan-zoom.min.js" type="text/javascript" charset="utf-8"></script>
         <script src="src/stop-mode.js" type="text/javascript" charset="utf-8"></script>
         <link rel="stylesheet" href="src/style.css"/>
     </head>
@@ -17,7 +19,7 @@
 stop Say {
     string words
 }</div>
-        
+<div id="output"></div>
         <script>
             var editor = ace.edit("editor");
             editor.getSession().setMode("ace/mode/stop-mode");

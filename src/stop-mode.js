@@ -71,9 +71,24 @@ ace.define('ace/mode/stop-mode',["require","exports","module","ace/lib/oop","ace
             this.$worker.on("terminate", function() {
                 session.clearAnnotations();
             });
+
+            this.$worker.on("graph", function(d) {
+                var graph = d.data;
+                if(graph){
+                    var svg = Viz(graph);
+                    var output = document.querySelector('#output');
+                    output.innerHTML = svg;
+                    window.spz = svgPanZoom('svg', {
+                        zoomEnabled: true,
+                          controlIconsEnabled: true,
+                          fit: true,
+                          center: true,
+                          minZoom: 0.1
+                    });
+                }
+            });
         
             return this.$worker;
-        
         };
     }).call(StopMode.prototype);
 
