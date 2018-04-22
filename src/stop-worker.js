@@ -221,7 +221,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         this.currentScope = this.currentScope.enclosingScope;
     };
     DefPhase.prototype.exitEnum_value = function(ctx) {
-        var enumValue = ctx.ENUM_VALUE().getText();
+        var enumValue = ctx.MODEL_TYPE().getText();
         var enumSymbol = this.currentScope;
         enumSymbol.values.push(enumValue);
     };
