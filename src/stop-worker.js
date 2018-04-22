@@ -641,6 +641,13 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
 
     (function() {
 
+        this.onCreate = function(){
+            var value = this.doc.getValue();
+            var validateObj = validate(value);
+            this.sender.emit("annotate", validateObj.annotations);
+            this.sender.emit("graph", validateObj.graph);
+        };
+        
         this.onUpdate = function() {
             var value = this.doc.getValue();
             var validateObj = validate(value);
