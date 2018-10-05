@@ -6,8 +6,8 @@ ace.define('ace/mode/stop-mode',["require","exports","module","ace/lib/oop","ace
     var StopHighlightRules = function() {
         var keywordMapper = this.createKeywordMapper({
             "keyword.control": "throws",
-            "keyword.operator": "->|<-",
-            "keyword.other": "start|stop|async|include|optional",
+            "keyword.operator": "->|<-|>>",
+            "keyword.other": "start|stop|async|include|optional|queue",
             "storage.type": "enum|double|float|int32|int64|uint32|uint64|sint32|sint64|fixed32|fixed64|sfixed32|sfixed64|bool|string|bytes",
             "constant.language": "timeout"
   }, "identifier");

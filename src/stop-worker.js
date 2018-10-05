@@ -90,8 +90,10 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         this.stop = false;
         this.start = false;
         this.asyncReturnType = undefined;
+        this.queue = false;
         this.errorTypes = [];
         this.transitions = [];
+        this.enqueues = [];
         this.timeout = 0;
         this.line = ctx.start.line;
         this.enclosingScope = enclosingScope;
@@ -102,6 +104,8 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             this.stop = true;
         }else if(ctx.ASYNC() != null) {
             this.async = true;
+        }else if(ctx.QUEUE() != null) {
+            this.queue = true;
         }
         if (ctx.return_type()!=null){
             this.asyncReturnType = ctx.return_type().getText();
@@ -126,6 +130,14 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     };
     TransitionSymbol.prototype = Object.create(Scope.prototype);
     TransitionSymbol.prototype.constructor = TransitionSymbol;
+
+    var EnqueueSymbol = function(ctx, enclosingScope){
+        this.name = ctx.MODEL_TYPE().getText();
+        this.enclosingScope = enclosingScope;
+        this.definitions = {};
+    };
+    EnqueueSymbol.prototype = Object.create(Scope.prototype);
+    EnqueueSymbol.prototype.constructor = EnqueueSymbol;
 
     var ScalarFieldSymbol = function(name, typeName){
         this.name = name;
@@ -249,6 +261,10 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
     DefPhase.prototype.exitTransition = function(ctx) {
         var transitionSymbol = new TransitionSymbol(ctx, this.currentScope);
         this.currentScope.define(transitionSymbol);
+    };
+    DefPhase.prototype.exitEnqueue = function(ctx) {
+        var enqueueSymbol = new EnqueueSymbol(ctx, this.currentScope);
+        this.currentScope.define(enqueueSymbol);
     };
     DefPhase.prototype.exitThrow_parameter = function(ctx) {
         var modelSymbol = this.currentScope;
@@ -374,6 +390,18 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
         }
     };
+    RefPhase.prototype.exitEnqueue = function(ctx) {
+        var modelName = ctx.MODEL_TYPE().getText();
+        var modelSymbol = this.globals.definitions[modelName];
+        if(modelSymbol == undefined){
+            var lineScope = getEnclosingScopeWithLine(this.currentScope);
+            var line = 1;
+            if (lineScope){
+                line = lineScope.line;
+            }
+            this.errors.push({line: line, message: "Couldn't define enqueue because " + modelName + " isn't defined"});
+        }
+    };
     RefPhase.prototype.exitReturn_type = function(ctx) {
         if (ctx.type()!=null){
             if(ctx.type().model_type() != null){
@@ -456,6 +484,26 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                     line = lineScope.line;
                 }
                 this.errors.push({line: line, message: "Couldn't define transition because " + modelName + " isn't defined"});
+            }
+        }
+    };
+    TransitionPhase.prototype.exitEnqueue = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            var modelName = ctx.MODEL_TYPE().getText();
+            var modelSymbol = this.currentScope;
+
+            var symbol = this.globals.definitions[modelName];
+            if(modelSymbol != undefined && symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    modelSymbol.enqueues.push(modelName);
+                }
+            }else{
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                var line = 1;
+                if (lineScope){
+                    line = lineScope.line;
+                }
+                this.errors.push({line: line, message: "Couldn't define enqueue because " + modelName + " isn't defined"});
             }
         }
     };
@@ -560,6 +608,35 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             }
         }
     };
+    StopPhase.prototype.exitEnqueue = function(ctx) {
+        if (ctx.MODEL_TYPE()!= null){
+            var modelName = ctx.MODEL_TYPE().getText();
+
+            var symbol = this.globals.definitions[modelName];
+            if(symbol != undefined) {
+                if (symbol instanceof ModelSymbol){
+                    var modelSymbol = symbol;
+                    var valid = this.findStop(modelSymbol);
+                    if (!valid){
+                        var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                        var line = 1;
+                        if (lineScope){
+                            line = lineScope.line;
+                        }
+                        this.errors.push({line: line, message: "Couldn't define enqueue \""+
+                                modelName +"\" because a stopping state could not be reached"});
+                    }
+                }
+            }else{
+                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                var line = 1;
+                if (lineScope){
+                    line = lineScope.line;
+                }
+                this.errors.push({line: line, message: "Couldn't define enqueue because " + modelName + " isn't defined"});
+            }
+        }
+    };
 
     var validate = function(input) {
         var stream = antlr4.CharStreams.fromString(input);
@@ -611,6 +688,9 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                     if (modelSymbol.async) {
                         atts.push("style=dashed");
                     }
+                    if (modelSymbol.queue) {
+                        atts.push("shape=cylinder");
+                    }
                     if (modelSymbol.start){
                         atts.push("style=bold");
                     } else if (modelSymbol.stop){
@@ -620,6 +700,10 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                     for (var i = 0; i < modelSymbol.transitions.length; i++){
                         var transition = modelSymbol.transitions[i];
                         digraph += modelSymbol.name + " -> " + transition + "\n";
+                    }
+                    for (var i = 0; i < modelSymbol.enqueues.length; i++){
+                        var enqueue = modelSymbol.enqueues[i];
+                        digraph += modelSymbol.name + " -> " + enqueue + " [style=dashed]\n";
                     }
                 }
             }
