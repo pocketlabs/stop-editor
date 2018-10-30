@@ -444,6 +444,35 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             }
         }
     };
+    RefPhase.prototype.exitTimeout = function(ctx) {
+        if (ctx.transition().MODEL_TYPE()!=null){
+            var modelName = ctx.transition().MODEL_TYPE().getText();
+            var modelSymbol = this.globals.definitions[modelName];
+            var lineScope = getEnclosingScopeWithLine(this.currentScope);
+            var line = 1;
+            if (lineScope){
+                line = lineScope.line;
+            }
+
+            if(modelSymbol == undefined){
+                this.errors.push({line: line, message: "Couldn't define throw parameter because " + modelName + " isn't defined"});
+            }
+            if (modelSymbol instanceof ModelSymbol) {
+                var timedOutStateSymbol = modelSymbol.definitions["timedOutState"];
+                if (timedOutStateSymbol != undefined){
+                    if (timedOutStateSymbol instanceof ModelFieldSymbol){
+                        if (!(timedOutStateSymbol.typeName == this.currentScope.name)){
+                            this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState has type " + timedOutStateSymbol.typeName + " instead of " + currentScope.name});
+                        }
+                    }else {
+                        this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState not defined"});
+                    }
+                }else{
+                    this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState not defined"});
+                }
+            }
+        }
+    };
 
     var TransitionPhase = function(listener, globals, scopes) {
         stop.StopListener.StopListener.call(this); // inherit default listener
