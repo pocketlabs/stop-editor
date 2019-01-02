@@ -143,6 +143,8 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         this.name = name;
         this.typeName = typeName;
         this.asyncSource = undefined;
+        this.asyncSourceMapping = undefined;
+        this.optional = false;
     };
     ScalarFieldSymbol.prototype.constructor = ScalarFieldSymbol;
 
@@ -150,6 +152,8 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         this.name = name;
         this.typeName = typeName;
         this.asyncSource = undefined;
+        this.asyncSourceMapping = undefined;
+        this.optional = false;
     };
     ModelFieldSymbol.prototype.constructor = ModelFieldSymbol;
 
@@ -157,6 +161,8 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
         this.name = name;
         this.typeName = typeName;
         this.asyncSource = undefined;
+        this.asyncSourceMapping = undefined;
+        this.optional = false;
     };
     CollectionFieldSymbol.prototype.constructor = CollectionFieldSymbol;
     
@@ -254,6 +260,18 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             if (ctx.async_source() != null){
                 var asyncModel = ctx.async_source().MODEL_TYPE().getText();
                 field.asyncSource = asyncModel;
+
+                if (ctx.async_source().async_source_mapping() != null){
+                    var asyncSourceMapping = {};
+                    for (var parameterIndex in ctx.async_source().async_source_mapping().async_source_mapping_parameter()){
+                        var parameterContext = ctx.async_source().async_source_mapping().async_source_mapping_parameter()[parameterIndex];
+                        asyncSourceMapping[parameterContext.ID().getText()] = parameterContext.async_source_mapping_parameter_rename().ID().getText();
+                    }
+                    field.asyncSourceMapping = asyncSourceMapping;
+                }
+            }
+            if ( ctx.OPTIONAL() != null){
+                field.optional = true;
             }
             this.currentScope.define(field);
         }
@@ -373,6 +391,56 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                             this.errors.push({line: line, message: "Couldn't define field \""+
                                     name +"\" because "
                                     + modelSymbol.name + " doesn't have a return type defined"});
+                    }
+                }
+                for (var s in modelSymbol.definitions){
+                    var fieldSymbol = modelSymbol.definitions[s];
+
+                    if ((fieldSymbol instanceof ScalarFieldSymbol) 
+                        || (fieldSymbol instanceof ModelFieldSymbol) 
+                        || (fieldSymbol instanceof CollectionFieldSymbol) ){
+                        var fieldName = fieldSymbol.name;
+
+                        if (symbol["asyncSourceMapping"]) {
+                            for (var asyncSourceMappingKey in symbol.asyncSourceMapping){
+                                if (asyncSourceMappingKey == fieldName){
+                                    fieldName = symbol.asyncSourceMapping[fieldName];
+                                }
+                            }
+                        }
+
+                        var currentScopeProperty = this.currentScope.definitions[fieldName];
+                        if (currentScopeProperty != null){
+                            if (currentScopeProperty.typeName != fieldSymbol.typeName){
+                                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                                var line = 1;
+                                if (lineScope){
+                                    line = lineScope.line;
+                                }
+                                this.errors.push({line: line, message: "Couldn't define field \""+
+                                        name +"\" because "
+                                        + fieldSymbol.name + " mapping to " + fieldName + " doesn't match required type " + fieldSymbol.typeName});
+                            }
+                            if (currentScopeProperty.optional && !symbol.optional){
+                                var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                                var line = 1;
+                                if (lineScope){
+                                    line = lineScope.line;
+                                }
+                                this.errors.push({line: line, message: "Couldn't define field \""+
+                                        name +"\" because "
+                                        + fieldName + " is optional and " + symbol.name + " is not optional"});
+                            }
+                        } else if (!fieldSymbol.optional) {
+                            var lineScope = getEnclosingScopeWithLine(this.currentScope);
+                            var line = 1;
+                            if (lineScope){
+                                line = lineScope.line;
+                            }
+                            this.errors.push({line: line, message: "Couldn't define field \""+
+                                    name +"\" because "
+                                    + fieldSymbol.name + " cannot be mapped within " + this.currentScope.name});
+                        }
                     }
                 }
             }
