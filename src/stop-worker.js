@@ -421,7 +421,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                                         name +"\" because "
                                         + fieldSymbol.name + " mapping to " + fieldName + " doesn't match required type " + fieldSymbol.typeName});
                             }
-                            if (currentScopeProperty.optional && !symbol.optional){
+                            if (currentScopeProperty.optional && !fieldSymbol.optional && !symbol.optional){
                                 var lineScope = getEnclosingScopeWithLine(this.currentScope);
                                 var line = 1;
                                 if (lineScope){
