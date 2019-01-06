@@ -526,17 +526,29 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                 this.errors.push({line: line, message: "Couldn't define throw parameter because " + modelName + " isn't defined"});
             }
             if (modelSymbol instanceof ModelSymbol) {
-                var timedOutStateSymbol = modelSymbol.definitions["timedOutState"];
-                if (timedOutStateSymbol != undefined){
-                    if (timedOutStateSymbol instanceof ModelFieldSymbol){
-                        if (!(timedOutStateSymbol.typeName == this.currentScope.name)){
-                            this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState has type " + timedOutStateSymbol.typeName + " instead of " + currentScope.name});
+                var fieldCount = 0;
+                for (var i in modelSymbol.definitions){
+                    var f = modelSymbol.definitions[i];
+                    if ((f instanceof ModelSymbol)
+                        || (f instanceof ScalarFieldSymbol)
+                        || (f instanceof CollectionFieldSymbol)
+                        ){
+                        fieldCount = fieldCount + 1;
+                    }
+                }
+                if (fieldCount > 0){
+                    var timedOutStateSymbol = modelSymbol.definitions["timedOutState"];
+                    if (timedOutStateSymbol != undefined){
+                        if (timedOutStateSymbol instanceof ModelFieldSymbol){
+                            if (!(timedOutStateSymbol.typeName == this.currentScope.name)){
+                                this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState has type " + timedOutStateSymbol.typeName + " instead of " + currentScope.name});
+                            }
+                        }else {
+                            this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState not defined as type "+ currentScope.name});
                         }
-                    }else {
+                    }else{
                         this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState not defined"});
                     }
-                }else{
-                    this.errors.push({line: line, message: "Couldn't define timeout transition because timedOutState not defined"});
                 }
             }
         }
