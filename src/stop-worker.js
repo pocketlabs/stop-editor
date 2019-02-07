@@ -431,7 +431,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                                         name +"\" because "
                                         + fieldName + " is optional and " + symbol.name + " is not optional"});
                             }
-                        } else if (!fieldSymbol.optional) {
+                        } else if ((fieldSymbol.asyncSource==undefined) && !fieldSymbol.optional) {
                             var lineScope = getEnclosingScopeWithLine(this.currentScope);
                             var line = 1;
                             if (lineScope){
