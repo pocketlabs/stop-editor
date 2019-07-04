@@ -1,4 +1,4 @@
-var EDITOR_BASE="http://localhost:8000";
+var EDITOR_BASE="https://editor.stop-lang.org";
 // var EDITOR_BASE="http://localhost:8000";
 var Honey = { 'requirePath': ['/lib/'] };
 
