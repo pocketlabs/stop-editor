@@ -1,4 +1,4 @@
-var EDITOR_BASE="https://editor.stop-lang.org";
+var EDITOR_BASE="http://localhost:8000";
 // var EDITOR_BASE="http://localhost:8000";
 var Honey = { 'requirePath': ['/lib/'] };
 
@@ -58,6 +58,33 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             return getEnclosingScopeWithLine(scope.enclosingScope);
         }
         return undefined;
+    }
+
+    function getPropertyFromReference(globals, scope, propertyName, isOptional){
+        var name = propertyName;
+        var isReference = (name.indexOf(".") > 0);
+        if (isReference){
+            name = name.split(".")[0];
+        }
+
+        if (scope instanceof ModelFieldSymbol){
+            var modelSymbol = globals.definitions[scope.typeName];
+            scope = modelSymbol;
+        }
+
+        var property = scope.definitions[name];
+
+        if (property && isReference){
+            if (isOptional || (property.optional == isOptional)){
+                var referenceSplits = propertyName.split(".");
+                var subPropertyName = referenceSplits.slice(1,referenceSplits.length).join(".");
+                return getPropertyFromReference(globals, property, subPropertyName, isOptional);
+            }else{  
+                return null;
+            }
+        }
+
+        return property;
     }
 
     var Scope = function(scope){
@@ -265,7 +292,7 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                     var asyncSourceMapping = {};
                     for (var parameterIndex in ctx.async_source().async_source_mapping().async_source_mapping_parameter()){
                         var parameterContext = ctx.async_source().async_source_mapping().async_source_mapping_parameter()[parameterIndex];
-                        asyncSourceMapping[parameterContext.ID().getText()] = parameterContext.async_source_mapping_parameter_rename().ID().getText();
+                        asyncSourceMapping[parameterContext.ID().getText()] = parameterContext.async_source_mapping_parameter_rename().getText();
                     }
                     field.asyncSourceMapping = asyncSourceMapping;
                 }
@@ -337,7 +364,9 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
             var modelSymbol = this.globals.definitions[modelName];
             var enumSymbol = this.currentScope.definitions[modelName];
             if(modelSymbol == undefined){
-                if ((enumSymbol != undefined) && (enumSymbol instanceof EnumSymbol)){
+                if (['double', 'float', 'int32', 'int64', 'uint32', 'uint64', 'sint32', 'sint64', 'fixed32', 'fixed64', 'sfixed32', 'sfixed64', 'bool', 'string', 'bytes', 'timestamp'].indexOf(modelName) >= 0) {
+                    // Found scalar
+                } else if ((enumSymbol != undefined) && (enumSymbol instanceof EnumSymbol)){
                     // Found symbol
                 } else {
                     var lineScope = getEnclosingScopeWithLine(this.currentScope);
@@ -409,7 +438,18 @@ ace.define('ace/worker/stop-worker',["require","exports","module","ace/lib/oop",
                             }
                         }
 
-                        var currentScopeProperty = this.currentScope.definitions[fieldName];
+                        var currentScopeProperty = null;
+                        if(fieldName.indexOf(".")>0){
+                            var fieldNameSplits = fieldName.split(".");
+                            var firstFieldName = fieldNameSplits[0];
+                            var firstProperty = this.currentScope.definitions[firstFieldName];
+                            if (firstProperty && ((firstProperty.optional == fieldSymbol.optional) || fieldSymbol.optional)){
+                                var subPropertyName = fieldNameSplits.slice(1,fieldNameSplits.length).join(".");
+                                currentScopeProperty = getPropertyFromReference(this.globals, firstProperty, subPropertyName, firstProperty.optional);
+                            }
+                        }else {
+                            currentScopeProperty= this.currentScope.definitions[fieldName];
+                        }
                         if (currentScopeProperty != null){
                             if (currentScopeProperty.typeName != fieldSymbol.typeName){
                                 var lineScope = getEnclosingScopeWithLine(this.currentScope);
